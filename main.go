@@ -174,20 +174,19 @@ func (p *page) pollPage(ctx *context) {
 	if ctx.pageMap[p.url] == done {
 		return
 	}
+	defer p.retryPage(ctx)
 	fmt.Println(p.url)
 
 	resp, err := http.Get(p.url)
 	if err != nil {
 		log.Print(err)
-		p.retryPage(ctx)
 		return
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Print(err)
-		p.retryPage(ctx)
+		log.Print(err)		
 		return
 	}
 	ctx.pageMap[p.url] = done
@@ -197,12 +196,17 @@ func (p *page) pollPage(ctx *context) {
 
 //失败后重新把页面放入channel
 func (p *page) retryPage(ctx *context) {
+	if ctx.pageMap[p.url] == done {
+		return
+	}
 	//这里很奇葩，写if ++p.retry < maxRetry 会报错
 	//写if ++p.retry; p.retry < maxRetry 也不行
 	if p.retry++; p.retry < maxRetry {
 		go func() {
 			ctx.pageChan <- p
 		}()
+	}else{
+		ctx.pageMap[p.url] = fail
 	}
 }
 
