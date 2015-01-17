@@ -258,12 +258,11 @@ func (imgInfo *image) downloadImage(ctx *context) {
 	if ctx.imgMap[imgUrl] == done {
 		return
 	}
+	defer imgInfo.imageRetry(ctx) //失败时重试
 
 	resp, err := http.Get(imgUrl)
 	if err != nil {
 		log.Print(err)
-		//fmt.Println(*imgInfo)
-		imgInfo.imageRetry(ctx)
 		return
 	}
 	defer resp.Body.Close()
@@ -283,7 +282,6 @@ func (imgInfo *image) downloadImage(ctx *context) {
 
 	if err != nil {
 		log.Print(err)
-		imgInfo.imageRetry(ctx)
 		return
 	}
 
@@ -293,6 +291,9 @@ func (imgInfo *image) downloadImage(ctx *context) {
 
 //失败重试
 func (imgInfo *image) imageRetry(ctx *context) {
+	if ctx.imgMap[imgInfo.imageURL] == done {
+		return
+	}
 	if imgInfo.retry++; imgInfo.retry < maxRetry {
 		go func() { //异步发送，避免阻塞
 			ctx.imgChan <- imgInfo
