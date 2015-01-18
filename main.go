@@ -63,7 +63,6 @@ var (
 )
 
 func main() {
-
 	var savePath string
 
 	root := "http://sexy.faceks.com/"
@@ -146,20 +145,22 @@ func stateMonitor(ctx *context) {
 	time.Sleep(10 * time.Second)
 	ticker := time.NewTicker(statusInterval)
 	count := 0
-	done := true
+	isDone := true
 	for {
 		select {
 		case <-ticker.C:
 			fmt.Printf("========================================================\nqueue:page(%v)\timage(%v)\tparse(%v)\nimage:found(%v)\tdone(%v)\n========================================================\n", len(ctx.pageChan), len(ctx.imgChan), len(ctx.parseChan), len(ctx.imgMap), count)
 			//当所有channel都为空，并且所有图片都已下载则退出程序
 			if len(ctx.pageChan) == 0 && len(ctx.imgChan) == 0 && len(ctx.parseChan) == 0 {
+				isDone = true
 				for _, val := range ctx.imgMap {
 					if val == ready {
-						done = false
+						isDone = false
 						break
 					}
 				}
-				if done {
+				if isDone {
+					fmt.Println("is done!")
 					os.Exit(0)
 				}
 			}
