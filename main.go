@@ -3,6 +3,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -186,7 +187,7 @@ func (p *page) pollPage(ctx *context) {
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Print(err)		
+		log.Print(err)
 		return
 	}
 	ctx.pageMap[p.url] = done
@@ -205,7 +206,7 @@ func (p *page) retryPage(ctx *context) {
 		go func() {
 			ctx.pageChan <- p
 		}()
-	}else{
+	} else {
 		ctx.pageMap[p.url] = fail
 	}
 }
@@ -240,7 +241,7 @@ func (p *page) parsePage(ctx *context) {
 	hrefIndex := hrefExp.FindAllSubmatchIndex(body, -1)
 	for _, n := range hrefIndex {
 		linkURL := toAbs(pageURL, string(body[n[2]:n[3]]))
-		if linkURL.Host != ctx.rootURL.Host { //忽略非本站的地址
+		if linkURL == nil || linkURL.Host != ctx.rootURL.Host { //忽略非本站的地址
 			continue
 		}
 		href := linkURL.String()
@@ -309,20 +310,35 @@ func (imgInfo *image) imageRetry(ctx *context) {
 
 //转换成绝对地址
 func toAbs(pageURL *url.URL, href string) *url.URL {
-	if href[0] == '?' {
-		href = pageURL.Path + href
+	//.  ..  /  ? http https
+	var buf bytes.Buffer
+	if h := strings.ToLower(href); strings.Index(h, "http://") == 0 || strings.Index(h, "https://") == 0 {
+		buf.WriteString(href)
+	} else {
+		buf.WriteString(pageURL.Scheme)
+		buf.WriteString("://")
+		buf.WriteString(pageURL.Host)
+
+		switch href[0] {
+		case '?':
+			if len(pageURL.Path) == 0 {
+				buf.WriteByte('/')
+			} else {
+				buf.WriteString(pageURL.Path)
+			}
+			buf.WriteString(href)
+		case '/':
+			buf.WriteString(href)
+		default:
+			p := "/" + path.Dir(pageURL.Path) + "/" + href
+			buf.WriteString(path.Clean(p))
+		}
 	}
 
-	h, err := url.Parse(href)
+	h, err := url.Parse(buf.String())
 	if err != nil {
 		log.Print(err)
+		return nil
 	}
-
-	if h.Scheme == "http" {
-		return h
-	}
-
-	url := h.ResolveReference(pageURL)
-	url.RawQuery = h.RawQuery
-	return url
+	return h
 }
