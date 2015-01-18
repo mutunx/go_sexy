@@ -283,12 +283,13 @@ func (imgInfo *image) downloadImage(ctx *context) {
 	defer img.Close()
 
 	imgWriter := bufio.NewWriterSize(img, bufferSize)
-	_, err = io.Copy(imgWriter, resp.Body)
 
+	_, err = io.Copy(imgWriter, resp.Body)
 	if err != nil {
 		log.Print(err)
 		return
 	}
+	imgWriter.Flush()
 
 	ctx.imgMap[imgUrl] = done
 	ctx.imgCount <- 1
