@@ -7,4 +7,4 @@ Go语言实现sexy.faceks.com妹子图爬虫
 放上来给大家参考一下，我也是初学golang，有哪些地方写得不好请指正
 
 ##实现原理
-![实现原理](http://git.oschina.net/xpan-lu/go_sexy/attach_files/download?i=8105&u=http%3A%2F%2Ffiles.git.oschina.net%2Fgroup1%2FM00%2F00%2F52%2FcHwGbFS7ysCAVH1oAAB7iGedM3k470.png%3Ftoken%3D5b5345962cb451fa9ff18e080bd55742%26ts%3D1421594974%26filename%3Dtheory.png)
+![实现原理](http://img2.ph.126.net/X9fKuuGPMw-M11JjEG_xeQ==/3782460737138245448.png)
