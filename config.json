@@ -1,0 +1,20 @@
+{
+	"root":"sexy.faceks.com",
+	"regex":{
+		"image":[
+			{
+				"exp":"bigimgsrc=\"([^\"?]+)",
+				"match":1,
+				"folder":"none" ##存放图片的文件夹，可选值url,title,none,正则表达式
+			}
+		],
+		"page":[],
+		"imgInPage":["\S+/post/\S+"],
+		"href":[
+			{
+				"exp":"\s+href=\"([a-zA-Z0-9_\-/:\.%?=]+)\"",
+				"match":1
+			}
+		]
+	}
+}

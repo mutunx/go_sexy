@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"go_sexy/conf"
 )
 
 //一张需要下载的图片
@@ -23,6 +24,7 @@ type image struct {
 	imageURL string
 	fileName string //保存到本地的文件名
 	retry    int    //重试次数
+	folder	 string //存放的文件夹
 }
 
 //一个需要解析的页面
@@ -30,6 +32,7 @@ type page struct {
 	url   string  //页面地址
 	body  *[]byte //html数据
 	retry int     //重试次数
+	parse bool    //true时将不检查url是否符合config中配置的正则表达式
 }
 
 type context struct {
@@ -39,15 +42,16 @@ type context struct {
 	imgChan   chan *image    //待下载的图片channel
 	parseChan chan *page     //待解析的网页channel
 	imgCount  chan int       //统计已下载完成的图片
-	savePath  string         //图片存放的路径，默认是 ./sexy
+	savePath  string         //图片存放的路径
 	rootURL   *url.URL       //起始地址，从这个页面开始爬
+	config	  *conf.Config		 //配置信息
 }
 
 const (
 	bufferSize     = 64 * 1024        //写图片文件的缓冲区大小
 	numPoller      = 5                //抓取网页的并发数
 	numDownloader  = 10               //下载图片的并发数
-	maxRetry       = 3                //抓取网页或下载图片失败时重试的次数
+	maxRetry       = 5                //抓取网页或下载图片失败时重试的次数
 	statusInterval = 15 * time.Second //进行状态监控的间隔
 	chanBufferSize = 80               //待解析的
 
@@ -58,40 +62,35 @@ const (
 )
 
 var (
-	imgExp  = regexp.MustCompile(`\s+bigimgsrc="([^"'<>]*)"`)          //regexp.MustCompile(`<img\s+src="([^"'<>]*)"/?>`)
-	hrefExp = regexp.MustCompile(`\s+href="([a-zA-Z0-9_\-/:\.%?=]+)"`) //regexp.MustCompile(`\s+href="(http://sexy.faceks.com/[^"':<>]+)"`)
+	titleExp  = regexp.MustCompile(`<title>([^<>]+)</title>`)          //regexp.MustCompile(`<img\s+src="([^"'<>]*)"/?>`)	
+	invalidCharExp = regexp.MustCompile(`[\\/*?:><|]`)
 )
 
 func main() {
-	var savePath string
-
-	root := "http://sexy.faceks.com/"
-
-	rootURL, err := url.Parse(root)
-	if err != nil {
-		log.Fatal(err)
+	configFile := "config.json"
+	cf := &conf.Config{}
+	
+	if len(os.Args) >= 2 {
+		configFile = os.Args[1]
+	}
+	
+	if err := cf.Load(configFile); err != nil{
+		panic("some error occurred when loading the config file:"+err.Error())
 	}
 
-	fmt.Println("starting downloads...")
-
-	switch len(os.Args) {
-	case 1:
-		savePath = "./sexy"
-	case 2:
-		savePath = os.Args[1]
-	default:
-		panic("invalid argument")
-	}
-	savePath += "/"
+	fmt.Println("start download...")
+	
+	savePath := "./"+cf.Root.Host+"/"
+	
 	os.MkdirAll(savePath, 0777)
 
-	ctx := start(savePath, rootURL)
+	ctx := start(savePath, cf)
 
 	stateMonitor(ctx)
 }
 
 //启动各种goroutine
-func start(savePath string, rootURL *url.URL) (ctx *context) {
+func start(savePath string, cf *conf.Config) (ctx *context) {
 	ctx = &context{
 		pageMap:   make(map[string]int),
 		imgMap:    make(map[string]int),
@@ -100,7 +99,8 @@ func start(savePath string, rootURL *url.URL) (ctx *context) {
 		parseChan: make(chan *page, chanBufferSize),
 		imgCount:  make(chan int),
 		savePath:  savePath,
-		rootURL:   rootURL,
+		rootURL:   cf.Root,
+		config:	   cf,
 	}
 
 	//抓取网页
@@ -135,7 +135,7 @@ func start(savePath string, rootURL *url.URL) (ctx *context) {
 	}()
 
 	//放入起始页面，开始工作了
-	ctx.pageChan <- &page{url: rootURL.String()}
+	ctx.pageChan <- &page{url: cf.Root.String(), parse: true}
 
 	return ctx
 }
@@ -176,19 +176,18 @@ func (p *page) pollPage(ctx *context) {
 	if ctx.pageMap[p.url] == done {
 		return
 	}
-	defer p.retryPage(ctx)
-	fmt.Println(p.url)
+	defer p.retryPage(ctx)	
 
 	resp, err := http.Get(p.url)
 	if err != nil {
-		log.Print(err)
+		log.Print("pollPage[1]:"+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Print(err)
+		log.Print("pollPage[2]:"+err.Error())
 		return
 	}
 	ctx.pageMap[p.url] = done
@@ -213,38 +212,117 @@ func (p *page) retryPage(ctx *context) {
 }
 
 //解析页面html
-func (p *page) parsePage(ctx *context) {
+func (p *page) parsePage(ctx *context) {		
+
+	//页面解析图片 strings.Index(p.url, "/post/") > 0
+	if matchUrl(p.url, ctx.config.ImgPageRegex) {
+		log.Println("match ImagePage URL : "+p.url)
+		for _, reg := range ctx.config.ImageRegex {
+			p.findImage(ctx, reg)
+		}
+	}
+	
+	//只有符合正则表达式的页面才去解析
+	if matchUrl(p.url, ctx.config.PageRegex) || p.parse{
+		log.Println("match Page URL : "+p.url)
+		for _, reg := range ctx.config.HrefRegex {
+			p.findURL(ctx, reg)
+		}
+	}
+}
+
+//在页面html中查找图片地址
+func (p *page) findImage(ctx *context, reg *conf.MatchExp) {
+	body := *(p.body)
+	imgIndex := reg.Exp.FindAllSubmatchIndex(body, -1)
+	folder := p.createImageFolder(ctx, reg)
+	
+	pageURL, err := url.Parse(p.url)
+	if err != nil {
+		log.Print("findImage[1]:"+err.Error())
+		return
+	}
+	
+	for i, n := range imgIndex {
+		idxBegin, idxEnd := 2*reg.Match, 2*reg.Match+1
+		imgUrl := strings.TrimSpace(string(body[n[idxBegin]:n[idxEnd]]))
+		if imgUrl == "" {
+			continue
+		}
+		absURL := toAbs(pageURL, imgUrl) //转换成绝对地址
+		absURL.Fragment = "" //删除锚点
+		imgUrl = absURL.String()
+		_, exist := ctx.imgMap[imgUrl] //检查是否已放入队列，这里需要同步
+		if !exist {
+			ctx.imgMap[imgUrl] = ready
+			fileName := path.Base(p.url) + "_" + strconv.Itoa(i) + path.Ext(imgUrl)
+			ctx.imgChan <- &image{imgUrl, fileName, 0, folder}
+
+		}
+	}
+}
+
+//创建图片文件夹
+func (p *page) createImageFolder(ctx *context, reg *conf.MatchExp) string{
+	var folder string
+	body := *(p.body)
+	
+	fd, ok := reg.Folder.(regexp.Regexp)
+	if ok {
+		loc := fd.FindIndex(body)
+		if loc == nil {
+			return ctx.savePath
+		}
+		folder = string(body[loc[0]:loc[1]])
+	}else{
+		fdstr, ok:= reg.Folder.(string)
+		if !ok{
+			return ctx.savePath
+		}
+		switch fdstr {
+			case "url":
+				folder = path.Base(p.url)
+				if folder == "" {
+					folder = "root"
+				}
+			case "title":
+				loc := titleExp.FindSubmatchIndex(body)
+				if loc == nil {
+					return ctx.savePath
+				}
+				folder = string(body[loc[2]:loc[3]])
+			case "none":
+				return ctx.savePath
+		}
+	}
+	
+	folder = invalidCharExp.ReplaceAllString(folder, "")
+	folder = ctx.savePath+"/"+folder+"/"
+	err := os.Mkdir(folder, 0777)
+	if err != nil {
+		return ctx.savePath
+	}
+	return folder
+	
+}
+
+//解析页面上的链接
+func (p *page) findURL(ctx *context, reg *conf.MatchExp){
 	body := *(p.body)
 	pageURL, err := url.Parse(p.url)
 	if err != nil {
-		log.Println(err)
+		log.Print("findURL[1]:"+err.Error())
 		return
 	}
-
-	if strings.Index(p.url, "/post/") > 0 { //post页面解析图片
-		imgIndex := imgExp.FindAllSubmatchIndex(body, -1)
-		for i, n := range imgIndex {
-			imgUrl := strings.TrimSpace(string(body[n[2]:n[3]]))
-			if imgUrl == "" {
-				continue
-			}
-			_, exist := ctx.imgMap[imgUrl] //检查是否已放入队列，这里需要同步
-			if !exist {
-				ctx.imgMap[imgUrl] = ready
-				fileName := path.Base(p.url) + "_" + strconv.Itoa(i) + path.Ext(imgUrl)
-				ctx.imgChan <- &image{imgUrl, fileName, 0}
-
-			}
-		}
-	}
-
 	//解析链接
-	hrefIndex := hrefExp.FindAllSubmatchIndex(body, -1)
+	hrefIndex := reg.Exp.FindAllSubmatchIndex(body, -1)
 	for _, n := range hrefIndex {
-		linkURL := toAbs(pageURL, string(body[n[2]:n[3]]))
+		idxBegin, idxEnd := 2*reg.Match, 2*reg.Match+1
+		linkURL := toAbs(pageURL, string(body[n[idxBegin]:n[idxEnd]])) //转换成绝对地址
 		if linkURL == nil || linkURL.Host != ctx.rootURL.Host { //忽略非本站的地址
 			continue
 		}
+		linkURL.Fragment = ""//删除锚点
 		href := linkURL.String()
 
 		_, exist := ctx.pageMap[href] //检查是否已放入队列，需要同步
@@ -268,17 +346,17 @@ func (imgInfo *image) downloadImage(ctx *context) {
 
 	resp, err := http.Get(imgUrl)
 	if err != nil {
-		log.Print(err)
+		log.Print("downloadImage[1]:"+err.Error())
 		return
 	}
 	defer resp.Body.Close()
 
 	//fmt.Println("download:" + imgUrl)
-	saveFile := ctx.savePath + imgInfo.fileName //path.Base(imgUrl)
+	saveFile := imgInfo.folder + imgInfo.fileName //path.Base(imgUrl)
 
 	img, err := os.Create(saveFile)
 	if err != nil {
-		log.Print(err)
+		log.Print("downloadImage[2]:"+err.Error())
 		return
 	}
 	defer img.Close()
@@ -287,7 +365,7 @@ func (imgInfo *image) downloadImage(ctx *context) {
 
 	_, err = io.Copy(imgWriter, resp.Body)
 	if err != nil {
-		log.Print(err)
+		log.Print("downloadImage[3]:"+err.Error())
 		return
 	}
 	imgWriter.Flush()
@@ -339,8 +417,22 @@ func toAbs(pageURL *url.URL, href string) *url.URL {
 
 	h, err := url.Parse(buf.String())
 	if err != nil {
-		log.Print(err)
+		log.Print("toAbs[1]:"+err.Error())
 		return nil
 	}
 	return h
+}
+
+//判断正则表达式是否能匹配制定的url
+//匹配则返回true，否则返回false
+func matchUrl(url string, reglist []*regexp.Regexp) bool{
+	if reglist == nil || len(reglist) == 0 {		
+		return true
+	}
+	for _, reg := range reglist {
+		if reg.MatchString(url) {			
+			return true
+		}
+	}
+	return false
 }
