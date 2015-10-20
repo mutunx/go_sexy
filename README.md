@@ -8,26 +8,28 @@ Go语言实现sexy.faceks.com妹子图爬虫
 
 ##更新说明
 - 2015年10月20日 增加了配置文件的功能，把要抓取的网站地址和相关的正则表达式放在json配置文件里
-    {
-    	"root":"sexy.faceks.com",
-    	"regex":{
-    		"image":[
-    			{
-    				"exp":"bigimgsrc=\"([^\"?]+)",
-    				"match":1,
-    				"folder":"none"##可选值url,title,none,正则表达式
-    			}
-    		],
-    		"page":[],
-    		"imgInPage":["\S+/post/\S+"],
-    		"href":[
-    			{
-    				"exp":"\s+href=\"([a-zA-Z0-9_\-/:\.%?=]+)\"",
-    				"match":1
-    			}
-    		]
-    	}
-    }
+```javascript
+{
+	"root":"sexy.faceks.com",
+	"regex":{
+		"image":[
+			{
+				"exp":"bigimgsrc=\"([^\"?]+)",
+				"match":1,
+				"folder":"none"##可选值url,title,none,正则表达式
+			}
+		],
+		"page":[],
+		"imgInPage":["\S+/post/\S+"],
+		"href":[
+			{
+				"exp":"\s+href=\"([a-zA-Z0-9_\-/:\.%?=]+)\"",
+				"match":1
+			}
+		]
+	}
+}
+```
 	**配置文件使用json格式：**
 	- root:字符串，要抓取的站点地址
 	- regex.image:数组，用于匹配页面上的图片地址
