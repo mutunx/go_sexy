@@ -67,6 +67,8 @@ const (
 var (
 	titleExp       = regexp.MustCompile(`<title>([^<>]+)</title>`) //regexp.MustCompile(`<img\s+src="([^"'<>]*)"/?>`)
 	invalidCharExp = regexp.MustCompile(`[\\/*?:><|]`)
+	headers        = map[string]string{"Host": "img.mmjpg.com", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36",
+		"Referer": "http://www.mmjpg.com/mm/1059/6"}
 )
 
 func main() {
@@ -185,7 +187,14 @@ func (p *page) pollPage(ctx *context) {
 	}
 	defer p.retryPage(ctx)
 
-	resp, err := http.Get(p.url)
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", p.url, nil)
+	for k, v := range headers {
+		req.Header.Add(k, v)
+	}
+
+	resp, err := client.Do(req)
+
 	if err != nil {
 		log.Print("pollPage[1]:" + err.Error())
 		return
@@ -193,6 +202,7 @@ func (p *page) pollPage(ctx *context) {
 	defer resp.Body.Close()
 
 	body, err := ioutil.ReadAll(resp.Body)
+
 	if err != nil {
 		log.Print("pollPage[2]:" + err.Error())
 		return
@@ -275,6 +285,9 @@ func (p *page) findImage(ctx *context, reg *conf.MatchExp) {
 			ctx.imgMap[imgUrl] = ready
 			ctx.lockImg.Unlock()
 			fileName := path.Base(p.url) + "_" + strconv.Itoa(i) + path.Ext(imgUrl)
+
+			fmt.Println("imgUrl:", imgUrl)
+
 			ctx.imgChan <- &image{imgUrl, fileName, 0, folder}
 		}
 	}
@@ -370,7 +383,12 @@ func (imgInfo *image) downloadImage(ctx *context) {
 	}
 	defer imgInfo.imageRetry(ctx) //失败时重试
 
-	resp, err := http.Get(imgUrl)
+	client := &http.Client{}
+	req, err := http.NewRequest("GET", imgUrl, nil)
+	for k, v := range headers {
+		req.Header.Add(k, v)
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Print("downloadImage[1]:" + err.Error())
 		return
