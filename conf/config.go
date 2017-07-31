@@ -2,19 +2,19 @@
 package conf
 
 import (
-	"log"
-	"strings"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/ioutil"
+	"log"
 	"net/url"
 	"regexp"
-	"bytes"
+	"strings"
 )
 
-type MatchExp struct{
-	Exp *regexp.Regexp
-	Match int
+type MatchExp struct {
+	Exp    *regexp.Regexp
+	Match  int
 	Folder interface{} //可选值url,title,none,正则表达式
 }
 
@@ -23,7 +23,7 @@ type Config struct {
 	ImageRegex   []*MatchExp
 	PageRegex    []*regexp.Regexp
 	ImgPageRegex []*regexp.Regexp
-	HrefRegex	 []*MatchExp
+	HrefRegex    []*MatchExp
 }
 
 func (c *Config) Load(file string) error {
@@ -31,27 +31,27 @@ func (c *Config) Load(file string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	content = bytes.Replace(content, []byte("\\"), []byte("\\\\"), -1)
 	content = bytes.Replace(content, []byte("\\\\\""), []byte("\\\""), -1)
-	
+
 	comRegex := regexp.MustCompile(`\s*##.*`)
 	content = comRegex.ReplaceAll(content, []byte{})
-	
+
 	nRegex := regexp.MustCompile(`\n|\t|\r`)
 	content = nRegex.ReplaceAll(content, []byte{})
-	
+
 	jsonObj := make(map[string]interface{})
 	err = json.Unmarshal(content, &jsonObj)
 	if err != nil {
 		log.Println(string(content))
-		return errors.New("[1]配置文件格式有误:"+err.Error()) 
+		return errors.New("[1]配置文件格式有误:" + err.Error())
 	}
-	
+
 	root := jsonObj["root"].(string)
 	temp := strings.ToLower(root)
 	if !strings.HasPrefix(temp, "http://") && !strings.HasPrefix(temp, "https://") {
-		root = "http://"+root
+		root = "http://" + root
 	}
 
 	c.Root, err = url.Parse(root)
@@ -67,27 +67,26 @@ func (c *Config) Load(file string) error {
 	imgRegs, ok := reg["image"].([]interface{})
 	if ok {
 		c.ImageRegex = make([]*MatchExp, len(imgRegs))
-		for i, val := range imgRegs {		
+		for i, val := range imgRegs {
 			obj, ok := val.(map[string]interface{})
 			if !ok {
 				return errors.New("[3]解析regex.image时出错")
 			}
-			
+
 			exp := obj["exp"].(string)
 			c.ImageRegex[i] = &MatchExp{}
 			c.ImageRegex[i].Match = int(obj["match"].(float64))
-			
+
 			folder := strings.ToLower(obj["folder"].(string))
 			if folder != "none" && folder != "url" && folder != "title" {
 				c.ImageRegex[i].Folder, err = regexp.Compile(folder)
 				if err != nil {
 					return errors.New("[4]解析正则表达式" + folder + "时出错")
 				}
-			}else{
+			} else {
 				c.ImageRegex[i].Folder = folder
 			}
-			
-			
+
 			c.ImageRegex[i].Exp, err = regexp.Compile(exp)
 			if err != nil {
 				return errors.New("[5]解析正则表达式" + exp + "时出错")
@@ -98,7 +97,7 @@ func (c *Config) Load(file string) error {
 	}
 
 	pageRegs, ok := reg["page"].([]interface{})
-	if ok {		
+	if ok {
 		c.PageRegex = make([]*regexp.Regexp, len(pageRegs))
 		for i, val := range pageRegs {
 			valStr := val.(string)
@@ -124,7 +123,7 @@ func (c *Config) Load(file string) error {
 	} else {
 		return errors.New("[10]解析regex.imgInPage时出错")
 	}
-	
+
 	hrefRegex, ok := reg["href"].([]interface{})
 	if ok {
 		c.HrefRegex = make([]*MatchExp, len(hrefRegex))
@@ -133,12 +132,12 @@ func (c *Config) Load(file string) error {
 			if !ok {
 				return errors.New("[11]解析regex.href时出错")
 			}
-			
+
 			exp := obj["exp"].(string)
-			
+
 			c.HrefRegex[i] = &MatchExp{}
 			c.HrefRegex[i].Match = int(obj["match"].(float64))
-			c.HrefRegex[i].Exp, err = regexp.Compile(exp)		
+			c.HrefRegex[i].Exp, err = regexp.Compile(exp)
 			if err != nil {
 				return errors.New("[12]解析正则表达式" + exp + "时出错")
 			}
