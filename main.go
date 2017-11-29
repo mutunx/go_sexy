@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"golang.org/x/net/proxy"
+	"net"
 )
 
 //一张需要下载的图片
@@ -108,12 +110,18 @@ func start(savePath string, cf *conf.Config) (ctx *context) {
 		config:    cf,
 	}
 
+	//初始化http客户端，http客户端线程安全，可以创建一次多次使用
+	client, err := initHttpClient(cf)
+	if err != nil {
+		panic("some error occurred while initializing the http client:" + err.Error())
+	}
+
 	//抓取网页
 	for i := 0; i < numPoller; i++ {
 		go func() {
 			for {
 				p := <-ctx.pageChan
-				p.pollPage(ctx)
+				p.pollPage(ctx, client)
 			}
 		}()
 	}
@@ -123,7 +131,7 @@ func start(savePath string, cf *conf.Config) (ctx *context) {
 		go func() {
 			for {
 				img := <-ctx.imgChan
-				img.downloadImage(ctx)
+				img.downloadImage(ctx, client)
 			}
 		}()
 	}
@@ -145,16 +153,48 @@ func start(savePath string, cf *conf.Config) (ctx *context) {
 	return ctx
 }
 
+//初始化http客户端
+func initHttpClient(cf *conf.Config) (*http.Client,error) {
+	if(strings.TrimSpace(cf.Proxy.Server) != ""){ //使用代理
+		var auth *proxy.Auth
+		if(strings.TrimSpace(cf.Proxy.UserName) != ""){
+			auth = &proxy.Auth{User:cf.Proxy.UserName, Password:cf.Proxy.Password}
+		}
+		dialer, err := proxy.SOCKS5("tcp", cf.Proxy.Server,
+			auth,
+			&net.Dialer {
+				Timeout: 30 * time.Second,
+				KeepAlive: 30 * time.Second,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		transport := &http.Transport{
+			Proxy: nil,
+			Dial: dialer.Dial,
+			TLSHandshakeTimeout: 10 * time.Second,
+		}
+		log.Println("Use proxy server:"+cf.Proxy.Server)
+		return &http.Client{Transport: transport},nil
+	}
+	return &http.Client{},nil  //不使用代理
+}
+
 //状态监控
 func stateMonitor(ctx *context) {
 	time.Sleep(10 * time.Second)
 	ticker := time.NewTicker(statusInterval)
 	count := 0
 	isDone := true
+	logFormat := "========================================================\n"
+	logFormat += "queue:page(%v)\timage(%v)\tparse(%v)\nimage:found(%v)\tdone(%v)\n"
+	logFormat += "========================================================\n"
 	for {
 		select {
 		case <-ticker.C:
-			fmt.Printf("========================================================\nqueue:page(%v)\timage(%v)\tparse(%v)\nimage:found(%v)\tdone(%v)\n========================================================\n", len(ctx.pageChan), len(ctx.imgChan), len(ctx.parseChan), len(ctx.imgMap), count)
+			fmt.Printf(logFormat, len(ctx.pageChan), len(ctx.imgChan), len(ctx.parseChan), len(ctx.imgMap), count)
 			//当所有channel都为空，并且所有图片都已下载则退出程序
 			if len(ctx.pageChan) == 0 && len(ctx.imgChan) == 0 && len(ctx.parseChan) == 0 {
 				isDone = true
@@ -176,7 +216,7 @@ func stateMonitor(ctx *context) {
 }
 
 //获取页面html
-func (p *page) pollPage(ctx *context) {
+func (p *page) pollPage(ctx *context, client *http.Client) {
 	//检查是否已解析
 	ctx.lockPage.RLock()
 	if ctx.pageMap[p.url] == done {
@@ -187,7 +227,6 @@ func (p *page) pollPage(ctx *context) {
 	}
 	defer p.retryPage(ctx)
 
-	client := &http.Client{}
 	req, err := http.NewRequest("GET", p.url, nil)
 	for k, v := range headers {
 		req.Header.Add(k, v)
@@ -286,7 +325,7 @@ func (p *page) findImage(ctx *context, reg *conf.MatchExp) {
 			ctx.lockImg.Unlock()
 			fileName := path.Base(p.url) + "_" + strconv.Itoa(i) + path.Ext(imgUrl)
 
-			fmt.Println("imgUrl:", imgUrl)
+			log.Println("imgUrl:", imgUrl)
 
 			ctx.imgChan <- &image{imgUrl, fileName, 0, folder}
 		}
@@ -350,7 +389,7 @@ func (p *page) findURL(ctx *context, reg *conf.MatchExp) {
 	for _, n := range hrefIndex {
 		idxBegin, idxEnd := 2*reg.Match, 2*reg.Match+1
 		linkURL := toAbs(pageURL, string(body[n[idxBegin]:n[idxEnd]])) //转换成绝对地址
-		if linkURL == nil || linkURL.Host != ctx.rootURL.Host {        //忽略非本站的地址
+		if linkURL == nil || linkURL.Host != ctx.rootURL.Host { //忽略非本站的地址
 			continue
 		}
 		linkURL.Fragment = "" //删除锚点
@@ -371,7 +410,7 @@ func (p *page) findURL(ctx *context, reg *conf.MatchExp) {
 }
 
 //下载图片
-func (imgInfo *image) downloadImage(ctx *context) {
+func (imgInfo *image) downloadImage(ctx *context, client *http.Client) {
 	imgUrl := imgInfo.imageURL
 
 	ctx.lockImg.RLock()
@@ -383,7 +422,6 @@ func (imgInfo *image) downloadImage(ctx *context) {
 	}
 	defer imgInfo.imageRetry(ctx) //失败时重试
 
-	client := &http.Client{}
 	req, err := http.NewRequest("GET", imgUrl, nil)
 	for k, v := range headers {
 		req.Header.Add(k, v)

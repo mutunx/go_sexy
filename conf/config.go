@@ -18,8 +18,15 @@ type MatchExp struct {
 	Folder interface{} //可选值url,title,none,正则表达式
 }
 
+type Proxy struct {
+	Server   string
+	UserName string
+	Password string
+}
+
 type Config struct {
 	Root         *url.URL
+	Proxy        *Proxy
 	ImageRegex   []*MatchExp
 	PageRegex    []*regexp.Regexp
 	ImgPageRegex []*regexp.Regexp
@@ -35,8 +42,8 @@ func (c *Config) Load(file string) error {
 	content = bytes.Replace(content, []byte("\\"), []byte("\\\\"), -1)
 	content = bytes.Replace(content, []byte("\\\\\""), []byte("\\\""), -1)
 
-	comRegex := regexp.MustCompile(`\s*##.*`)
-	content = comRegex.ReplaceAll(content, []byte{})
+	comRegex := regexp.MustCompile(`\s*//.*`)
+	content = comRegex.ReplaceAll(content, []byte{}) //删除注释
 
 	nRegex := regexp.MustCompile(`\n|\t|\r`)
 	content = nRegex.ReplaceAll(content, []byte{})
@@ -58,6 +65,12 @@ func (c *Config) Load(file string) error {
 	if err != nil {
 		return err
 	}
+
+	c.Proxy = &Proxy{}
+	proxy, ok := jsonObj["proxy"].(map[string]string);
+	c.Proxy.Server = proxy["server"]
+	c.Proxy.UserName = proxy["username"]
+	c.Proxy.Password = proxy["password"]
 
 	reg, ok := jsonObj["regex"].(map[string]interface{})
 	if !ok {
