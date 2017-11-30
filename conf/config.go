@@ -31,6 +31,8 @@ type Config struct {
 	PageRegex    []*regexp.Regexp
 	ImgPageRegex []*regexp.Regexp
 	HrefRegex    []*MatchExp
+	Header       map[string]string
+	Charset      string
 }
 
 func (c *Config) Load(file string) error {
@@ -42,7 +44,7 @@ func (c *Config) Load(file string) error {
 	content = bytes.Replace(content, []byte("\\"), []byte("\\\\"), -1)
 	content = bytes.Replace(content, []byte("\\\\\""), []byte("\\\""), -1)
 
-	comRegex := regexp.MustCompile(`\s*//.*`)
+	comRegex := regexp.MustCompile(`\s*/\*.*\*/`)
 	content = comRegex.ReplaceAll(content, []byte{}) //删除注释
 
 	nRegex := regexp.MustCompile(`\n|\t|\r`)
@@ -66,15 +68,39 @@ func (c *Config) Load(file string) error {
 		return err
 	}
 
+	//代理服务器配置
 	c.Proxy = &Proxy{}
-	proxy, ok := jsonObj["proxy"].(map[string]string);
-	c.Proxy.Server = proxy["server"]
-	c.Proxy.UserName = proxy["username"]
-	c.Proxy.Password = proxy["password"]
+	proxy, ok := jsonObj["proxy"].(map[string]interface{})
+	if !ok {
+		return errors.New("[2]解析proxy时出错")
+	}
+	c.Proxy.Server = proxy["server"].(string)
+	c.Proxy.UserName = proxy["username"].(string)
+	c.Proxy.Password = proxy["password"].(string)
 
+	//HTTP请求头
+	headers, ok := jsonObj["header"].(map[string]interface{})
+	if !ok {
+		return errors.New("[3]解析header时出错")
+	}
+	c.Header = make(map[string]string)
+	for k, v := range headers {
+		c.Header[k] = v.(string)
+	}
+
+	//网页编码
+	c.Charset, ok = jsonObj["charset"].(string)
+	if !ok {
+		return errors.New("解析charset时出错")
+	}
+	if(strings.TrimSpace(c.Charset) == ""){
+		c.Charset = "utf-8"
+	}
+
+	//正则表达式
 	reg, ok := jsonObj["regex"].(map[string]interface{})
 	if !ok {
-		return errors.New("[2]解析regex时出错")
+		return errors.New("[4]解析regex时出错")
 	}
 
 	imgRegs, ok := reg["image"].([]interface{})
@@ -83,7 +109,7 @@ func (c *Config) Load(file string) error {
 		for i, val := range imgRegs {
 			obj, ok := val.(map[string]interface{})
 			if !ok {
-				return errors.New("[3]解析regex.image时出错")
+				return errors.New("[5]解析regex.image时出错")
 			}
 
 			exp := obj["exp"].(string)
@@ -94,7 +120,7 @@ func (c *Config) Load(file string) error {
 			if folder != "none" && folder != "url" && folder != "title" {
 				c.ImageRegex[i].Folder, err = regexp.Compile(folder)
 				if err != nil {
-					return errors.New("[4]解析正则表达式" + folder + "时出错")
+					return errors.New("[6]解析正则表达式" + folder + "时出错")
 				}
 			} else {
 				c.ImageRegex[i].Folder = folder
@@ -102,11 +128,11 @@ func (c *Config) Load(file string) error {
 
 			c.ImageRegex[i].Exp, err = regexp.Compile(exp)
 			if err != nil {
-				return errors.New("[5]解析正则表达式" + exp + "时出错")
+				return errors.New("[7]解析正则表达式" + exp + "时出错")
 			}
 		}
 	} else {
-		return errors.New("[6]解析regex.image时出错")
+		return errors.New("[8]解析regex.image时出错")
 	}
 
 	pageRegs, ok := reg["page"].([]interface{})
@@ -116,11 +142,11 @@ func (c *Config) Load(file string) error {
 			valStr := val.(string)
 			c.PageRegex[i], err = regexp.Compile(valStr)
 			if err != nil {
-				return errors.New("[7]解析正则表达式" + valStr + "时出错")
+				return errors.New("[9]解析正则表达式" + valStr + "时出错")
 			}
 		}
 	} else {
-		return errors.New("[8]解析regex.page时出错")
+		return errors.New("[10]解析regex.page时出错")
 	}
 
 	imgPageRegs, ok := reg["imgInPage"].([]interface{})
@@ -130,11 +156,11 @@ func (c *Config) Load(file string) error {
 			valStr := val.(string)
 			c.ImgPageRegex[i], err = regexp.Compile(valStr)
 			if err != nil {
-				return errors.New("[9]解析正则表达式" + valStr + "时出错")
+				return errors.New("[11]解析正则表达式" + valStr + "时出错")
 			}
 		}
 	} else {
-		return errors.New("[10]解析regex.imgInPage时出错")
+		return errors.New("[12]解析regex.imgInPage时出错")
 	}
 
 	hrefRegex, ok := reg["href"].([]interface{})
@@ -143,7 +169,7 @@ func (c *Config) Load(file string) error {
 		for i, val := range hrefRegex {
 			obj, ok := val.(map[string]interface{})
 			if !ok {
-				return errors.New("[11]解析regex.href时出错")
+				return errors.New("[13]解析regex.href时出错")
 			}
 
 			exp := obj["exp"].(string)
@@ -152,11 +178,11 @@ func (c *Config) Load(file string) error {
 			c.HrefRegex[i].Match = int(obj["match"].(float64))
 			c.HrefRegex[i].Exp, err = regexp.Compile(exp)
 			if err != nil {
-				return errors.New("[12]解析正则表达式" + exp + "时出错")
+				return errors.New("[14]解析正则表达式" + exp + "时出错")
 			}
 		}
 	} else {
-		return errors.New("[13]解析regex.hrefRegex时出错")
+		return errors.New("[15]解析regex.hrefRegex时出错")
 	}
 
 	return nil

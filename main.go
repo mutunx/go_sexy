@@ -20,6 +20,8 @@ import (
 	"time"
 	"golang.org/x/net/proxy"
 	"net"
+	"golang.org/x/text/transform"
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 //一张需要下载的图片
@@ -69,8 +71,6 @@ const (
 var (
 	titleExp       = regexp.MustCompile(`<title>([^<>]+)</title>`) //regexp.MustCompile(`<img\s+src="([^"'<>]*)"/?>`)
 	invalidCharExp = regexp.MustCompile(`[\\/*?:><|]`)
-	headers        = map[string]string{"Host": "img.mmjpg.com", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36",
-		"Referer": "http://www.mmjpg.com/mm/1059/6"}
 )
 
 func main() {
@@ -228,7 +228,7 @@ func (p *page) pollPage(ctx *context, client *http.Client) {
 	defer p.retryPage(ctx)
 
 	req, err := http.NewRequest("GET", p.url, nil)
-	for k, v := range headers {
+	for k, v := range ctx.config.Header {
 		req.Header.Add(k, v)
 	}
 
@@ -240,7 +240,11 @@ func (p *page) pollPage(ctx *context, client *http.Client) {
 	}
 	defer resp.Body.Close()
 
-	body, err := ioutil.ReadAll(resp.Body)
+	reader := resp.Body.(io.Reader)
+	if ctx.config.Charset == "gbk" {
+		reader = transform.NewReader(resp.Body, simplifiedchinese.GBK.NewDecoder())//字符转码
+	}
+	body, err := ioutil.ReadAll(reader)
 
 	if err != nil {
 		log.Print("pollPage[2]:" + err.Error())
@@ -423,7 +427,7 @@ func (imgInfo *image) downloadImage(ctx *context, client *http.Client) {
 	defer imgInfo.imageRetry(ctx) //失败时重试
 
 	req, err := http.NewRequest("GET", imgUrl, nil)
-	for k, v := range headers {
+	for k, v := range ctx.config.Header {
 		req.Header.Add(k, v)
 	}
 	resp, err := client.Do(req)

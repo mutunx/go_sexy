@@ -19,6 +19,12 @@ Go语言实现妹子图爬虫
     	"username":"",
     	"password":""
     },
+    "header":{
+    	"Host":"www.mmjpg.com",
+    	"User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36",
+    	"Referer": "http://www.mmjpg.com/mm/1059/6"
+    },
+    "charset":"utf-8",
 	"regex":{
 		"image":[
 			{
@@ -41,6 +47,8 @@ Go语言实现妹子图爬虫
 
 **配置文件使用json格式：**
 - root:字符串，要抓取的站点地址
+- header:HTTP请求头
+- charset:指定页面的编码，可选值utf-8或gbk
 - proxy.server:代理服务器地址和端口，例如：127.0.0.1:1080，只支持SOCKS5代理服务器，空字符串表示不使用代理
 - proxy.username:代理服务器用户名，如果不需要登录则设置空字符串
 - proxy.password:代理服务器密码，如果不需要登录则设置空字符串
@@ -59,7 +67,7 @@ Go语言实现妹子图爬虫
  - regex.href.match:整数，指定超链接在正则表达式里的哪个分组，0表示整个表达式匹配的内容，1表示第一个分组
 
 ## 编译说明
-- 程序依赖golang.org/x/net包， [下载地址](https://github.com/golang/net/tree/release-branch.go1.9/websocket)
+- 程序依赖golang.org/x/net包， [下载地址](https://github.com/golang/net/tree/release-branch.go1.9)
 
 ## 实现原理
 ![实现原理](http://git.oschina.net/xpan-lu/go_sexy/raw/master/theory.png)
