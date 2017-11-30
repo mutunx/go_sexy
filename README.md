@@ -13,35 +13,35 @@ Go语言实现妹子图爬虫
 
 ```javascript
 {
-	"root":"xxxxx.com",
-	"proxy":{
-    	"server":"",
-    	"username":"",
-    	"password":""
+    "root":"xxxxx.com",
+    "proxy":{
+        "server":"",
+        "username":"",
+        "password":""
     },
     "header":{
-    	"Host":"www.mmjpg.com",
-    	"User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36",
-    	"Referer": "http://www.mmjpg.com/mm/1059/6"
+        "Host":"www.mmjpg.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36",
+        "Referer": "http://www.mmjpg.com/mm/1059/6"
     },
     "charset":"utf-8",
-	"regex":{
-		"image":[
-			{
-				"exp":"bigimgsrc=\"([^\"?]+)",
-				"match":1,
-				"folder":"none"##可选值url,title,none,正则表达式
-			}
-		],
-		"page":[],
-		"imgInPage":["\S+/post/\S+"],
-		"href":[
-			{
-				"exp":"\s+href=\"([a-zA-Z0-9_\-/:\.%?=]+)\"",
-				"match":1
-			}
-		]
-	}
+    "regex":{
+        "image":[
+            {
+                "exp":"bigimgsrc=\"([^\"?]+)",
+                "match":1,
+                "folder":"none"##可选值url,title,none,正则表达式
+            }
+        ],
+        "page":[],
+        "imgInPage":["\S+/post/\S+"],
+        "href":[
+            {
+                "exp":"\s+href=\"([a-zA-Z0-9_\-/:\.%?=]+)\"",
+                "match":1
+            }
+        ]
+    }
 }
 ```
 
@@ -67,7 +67,8 @@ Go语言实现妹子图爬虫
  - regex.href.match:整数，指定超链接在正则表达式里的哪个分组，0表示整个表达式匹配的内容，1表示第一个分组
 
 ## 编译说明
-- 程序依赖golang.org/x/net包， [下载地址](https://github.com/golang/net/tree/release-branch.go1.9)
+- golang.org/x/net包 [下载地址](https://github.com/golang/net/tree/release-branch.go1.9)
+- golang.org/x/text包 [下载地址](https://github.com/golang/text)
 
 ## 实现原理
 ![实现原理](http://git.oschina.net/xpan-lu/go_sexy/raw/master/theory.png)
