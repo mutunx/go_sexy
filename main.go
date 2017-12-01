@@ -22,6 +22,7 @@ import (
 	"net"
 	"golang.org/x/text/transform"
 	"golang.org/x/text/encoding/simplifiedchinese"
+	"github.com/PuerkitoBio/goquery"
 )
 
 //一张需要下载的图片
@@ -56,11 +57,11 @@ type context struct {
 
 const (
 	bufferSize     = 64 * 1024        //写图片文件的缓冲区大小
-	numPoller      = 5                //抓取网页的并发数
+	numPoller      = 10               //抓取网页的并发数
 	numDownloader  = 10               //下载图片的并发数
-	maxRetry       = 3                //抓取网页或下载图片失败时重试的次数
+	maxRetry       = 2                //抓取网页或下载图片失败时重试的次数
 	statusInterval = 15 * time.Second //进行状态监控的间隔
-	chanBufferSize = 80               //待解析的
+	chanBufferSize = 10               //待解析的
 
 	//图片或页面处理状态
 	ready = iota //待处理
@@ -101,8 +102,8 @@ func start(savePath string, cf *conf.Config) (ctx *context) {
 	ctx = &context{
 		pageMap:   make(map[string]int),
 		imgMap:    make(map[string]int),
-		pageChan:  make(chan *page, chanBufferSize*3),
-		imgChan:   make(chan *image, chanBufferSize*5),
+		pageChan:  make(chan *page, chanBufferSize*10),
+		imgChan:   make(chan *image, chanBufferSize*20),
 		parseChan: make(chan *page, chanBufferSize),
 		imgCount:  make(chan int),
 		savePath:  savePath,
@@ -120,6 +121,11 @@ func start(savePath string, cf *conf.Config) (ctx *context) {
 	for i := 0; i < numPoller; i++ {
 		go func() {
 			for {
+				/*log.Println(string(len(ctx.parseChan))+","+string(cap(ctx.parseChan)))
+				if len(ctx.parseChan) == cap(ctx.parseChan){
+					log.Println("pollPage: pause")
+					time.Sleep(5 * time.Second)
+				}*/
 				p := <-ctx.pageChan
 				p.pollPage(ctx, client)
 			}
@@ -284,33 +290,62 @@ func (p *page) retryPage(ctx *context) {
 func (p *page) parsePage(ctx *context) {
 	//页面解析图片 strings.Index(p.url, "/post/") > 0
 	if matchUrl(p.url, ctx.config.ImgPageRegex) {
-		log.Println("match ImagePage URL : " + p.url)
-		for _, reg := range ctx.config.ImageRegex {
-			p.findImage(ctx, reg)
+		//log.Println("match ImagePage URL : " + p.url)
+		for _, exp := range ctx.config.ImageExp {
+			p.findImage(ctx, exp)
 		}
 	}
 
 	//只有符合正则表达式的页面才去解析
 	if matchUrl(p.url, ctx.config.PageRegex) || p.parse {
-		log.Println("match Page URL : " + p.url)
-		for _, reg := range ctx.config.HrefRegex {
-			p.findURL(ctx, reg)
+		//log.Println("match Page URL : " + p.url)
+		for _, exp := range ctx.config.HrefExp {
+			p.findURL(ctx, exp)
 		}
 	}
 }
 
 //在页面html中查找图片地址
-func (p *page) findImage(ctx *context, reg *conf.MatchExp) {
+func (p *page) findImage(ctx *context, exp *conf.MatchExp) {
 	body := *(p.body)
-	imgIndex := reg.Exp.FindAllSubmatchIndex(body, -1)
-	folder := p.createImageFolder(ctx, reg)
+	folder := p.createImageFolder(ctx, exp)
 
 	pageURL, err := url.Parse(p.url)
 	if err != nil {
-		log.Print("findImage[1]:" + err.Error())
+		log.Fatal("findImage[1]:" + err.Error())
 		return
 	}
 
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	doc.Find(exp.Query).Each(func(i int, s *goquery.Selection) {
+		// For each item found, get the band and title
+		imgUrl,e := s.Attr(exp.Attr)
+		if !e || imgUrl == "" {
+			return
+		}
+
+		absURL := toAbs(pageURL, imgUrl) //转换成绝对地址
+		absURL.Fragment = ""             //删除锚点
+		imgUrl = absURL.String()
+		ctx.lockImg.RLock()
+		_, exist := ctx.imgMap[imgUrl] //检查是否已放入队列，这里需要同步
+		ctx.lockImg.RUnlock()
+		if !exist {
+			ctx.lockImg.Lock()
+			ctx.imgMap[imgUrl] = ready
+			ctx.lockImg.Unlock()
+			fileName := path.Base(p.url) + "_" + strconv.Itoa(i) + path.Ext(imgUrl)
+
+			log.Println("imgUrl:", imgUrl)
+
+			ctx.imgChan <- &image{imgUrl, fileName, 0, folder}
+		}
+	})
+/*
 	for i, n := range imgIndex {
 		idxBegin, idxEnd := 2*reg.Match, 2*reg.Match+1
 		imgUrl := strings.TrimSpace(string(body[n[idxBegin]:n[idxEnd]]))
@@ -333,7 +368,7 @@ func (p *page) findImage(ctx *context, reg *conf.MatchExp) {
 
 			ctx.imgChan <- &image{imgUrl, fileName, 0, folder}
 		}
-	}
+	}*/
 }
 
 //创建图片文件夹
@@ -381,7 +416,7 @@ func (p *page) createImageFolder(ctx *context, reg *conf.MatchExp) string {
 }
 
 //解析页面上的链接
-func (p *page) findURL(ctx *context, reg *conf.MatchExp) {
+func (p *page) findURL(ctx *context, exp *conf.MatchExp) {
 	body := *(p.body)
 	pageURL, err := url.Parse(p.url)
 	if err != nil {
@@ -389,12 +424,19 @@ func (p *page) findURL(ctx *context, reg *conf.MatchExp) {
 		return
 	}
 	//解析链接
-	hrefIndex := reg.Exp.FindAllSubmatchIndex(body, -1)
-	for _, n := range hrefIndex {
-		idxBegin, idxEnd := 2*reg.Match, 2*reg.Match+1
-		linkURL := toAbs(pageURL, string(body[n[idxBegin]:n[idxEnd]])) //转换成绝对地址
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	doc.Find(exp.Query).Each(func(i int, s *goquery.Selection) {
+		hrefAttr, e := s.Attr(exp.Attr)
+		if !e || hrefAttr == "" {
+			return
+		}
+		linkURL := toAbs(pageURL, hrefAttr) //转换成绝对地址
 		if linkURL == nil || linkURL.Host != ctx.rootURL.Host { //忽略非本站的地址
-			continue
+			return
 		}
 		linkURL.Fragment = "" //删除锚点
 		href := linkURL.String()
@@ -410,7 +452,7 @@ func (p *page) findURL(ctx *context, reg *conf.MatchExp) {
 				ctx.pageChan <- &page{url: href}
 			}()
 		}
-	}
+	})
 }
 
 //下载图片

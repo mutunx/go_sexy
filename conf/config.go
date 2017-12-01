@@ -13,8 +13,8 @@ import (
 )
 
 type MatchExp struct {
-	Exp    *regexp.Regexp
-	Match  int
+	Query  string
+	Attr   string
 	Folder interface{} //可选值url,title,none,正则表达式
 }
 
@@ -27,10 +27,10 @@ type Proxy struct {
 type Config struct {
 	Root         *url.URL
 	Proxy        *Proxy
-	ImageRegex   []*MatchExp
+	ImageExp   []*MatchExp
 	PageRegex    []*regexp.Regexp
 	ImgPageRegex []*regexp.Regexp
-	HrefRegex    []*MatchExp
+	HrefExp    []*MatchExp
 	Header       map[string]string
 	Charset      string
 }
@@ -93,7 +93,7 @@ func (c *Config) Load(file string) error {
 	if !ok {
 		return errors.New("解析charset时出错")
 	}
-	if(strings.TrimSpace(c.Charset) == ""){
+	if (strings.TrimSpace(c.Charset) == "") {
 		c.Charset = "utf-8"
 	}
 
@@ -105,30 +105,24 @@ func (c *Config) Load(file string) error {
 
 	imgRegs, ok := reg["image"].([]interface{})
 	if ok {
-		c.ImageRegex = make([]*MatchExp, len(imgRegs))
+		c.ImageExp = make([]*MatchExp, len(imgRegs))
 		for i, val := range imgRegs {
 			obj, ok := val.(map[string]interface{})
 			if !ok {
 				return errors.New("[5]解析regex.image时出错")
 			}
-
-			exp := obj["exp"].(string)
-			c.ImageRegex[i] = &MatchExp{}
-			c.ImageRegex[i].Match = int(obj["match"].(float64))
+			c.ImageExp[i] = &MatchExp{}
+			c.ImageExp[i].Query = obj["query"].(string)
+			c.ImageExp[i].Attr = obj["attr"].(string)
 
 			folder := strings.ToLower(obj["folder"].(string))
 			if folder != "none" && folder != "url" && folder != "title" {
-				c.ImageRegex[i].Folder, err = regexp.Compile(folder)
+				c.ImageExp[i].Folder, err = regexp.Compile(folder)
 				if err != nil {
 					return errors.New("[6]解析正则表达式" + folder + "时出错")
 				}
 			} else {
-				c.ImageRegex[i].Folder = folder
-			}
-
-			c.ImageRegex[i].Exp, err = regexp.Compile(exp)
-			if err != nil {
-				return errors.New("[7]解析正则表达式" + exp + "时出错")
+				c.ImageExp[i].Folder = folder
 			}
 		}
 	} else {
@@ -165,21 +159,15 @@ func (c *Config) Load(file string) error {
 
 	hrefRegex, ok := reg["href"].([]interface{})
 	if ok {
-		c.HrefRegex = make([]*MatchExp, len(hrefRegex))
+		c.HrefExp = make([]*MatchExp, len(hrefRegex))
 		for i, val := range hrefRegex {
 			obj, ok := val.(map[string]interface{})
 			if !ok {
 				return errors.New("[13]解析regex.href时出错")
 			}
-
-			exp := obj["exp"].(string)
-
-			c.HrefRegex[i] = &MatchExp{}
-			c.HrefRegex[i].Match = int(obj["match"].(float64))
-			c.HrefRegex[i].Exp, err = regexp.Compile(exp)
-			if err != nil {
-				return errors.New("[14]解析正则表达式" + exp + "时出错")
-			}
+			c.HrefExp[i] = &MatchExp{}
+			c.HrefExp[i].Query = obj["query"].(string)
+			c.HrefExp[i].Attr = obj["attr"].(string)
 		}
 	} else {
 		return errors.New("[15]解析regex.hrefRegex时出错")
