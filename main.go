@@ -50,19 +50,22 @@ type context struct {
 	imgChan   chan *image    //待下载的图片channel
 	parseChan chan *page     //待解析的网页channel
 	imgCount  chan int       //统计已下载完成的图片
+	logChan   chan *logInfo  //日志
 	savePath  string         //图片存放的路径
 	rootURL   *url.URL       //起始地址，从这个页面开始爬
 	config    *conf.Config   //配置信息
 }
 
 const (
-	bufferSize     = 64 * 1024        //写图片文件的缓冲区大小
-	numPoller      = 10               //抓取网页的并发数
-	numDownloader  = 10               //下载图片的并发数
-	maxRetry       = 2                //抓取网页或下载图片失败时重试的次数
-	statusInterval = 15 * time.Second //进行状态监控的间隔
-	chanBufferSize = 10               //待解析的
+	bufferSize     = 64 * 1024       //写图片文件的缓冲区大小
+	numPoller      = 10              //抓取网页的并发数
+	numDownloader  = 10              //下载图片的并发数
+	maxRetry       = 2               //抓取网页或下载图片失败时重试的次数
+	statusInterval = 5 * time.Second //进行状态监控的间隔
+	chanBufferSize = 10              //待解析的
+)
 
+const (
 	//图片或页面处理状态
 	ready = iota //待处理
 	done         //已处理
@@ -85,34 +88,37 @@ func main() {
 	if err := cf.Load(configFile); err != nil {
 		panic("some error occurred when loading the config file:" + err.Error())
 	}
-
 	fmt.Println("start download...")
 
-	savePath := "./" + cf.Root.Host + "/"
-
-	os.MkdirAll(savePath, 0777)
-
-	ctx := start(savePath, cf)
-
+	ctx := initContext(cf)
+	go initLogWriter(ctx)
+	start(ctx)
 	stateMonitor(ctx)
 }
 
-//启动各种goroutine
-func start(savePath string, cf *conf.Config) (ctx *context) {
-	ctx = &context{
+func initContext(cf *conf.Config) (ctx *context) {
+	savePath := "./" + cf.Root.Host +"/"
+	os.MkdirAll(savePath+"logs", 0777)
+	log.Println(savePath)
+
+	return &context{
 		pageMap:   make(map[string]int),
 		imgMap:    make(map[string]int),
 		pageChan:  make(chan *page, chanBufferSize*10),
 		imgChan:   make(chan *image, chanBufferSize*20),
 		parseChan: make(chan *page, chanBufferSize),
 		imgCount:  make(chan int),
+		logChan:   make(chan *logInfo, 20),
 		savePath:  savePath,
 		rootURL:   cf.Root,
 		config:    cf,
 	}
+}
 
+//启动各种goroutine
+func start(ctx *context) {
 	//初始化http客户端，http客户端线程安全，可以创建一次多次使用
-	client, err := initHttpClient(cf)
+	client, err := initHttpClient(ctx.config)
 	if err != nil {
 		panic("some error occurred while initializing the http client:" + err.Error())
 	}
@@ -154,22 +160,20 @@ func start(savePath string, cf *conf.Config) (ctx *context) {
 	}()
 
 	//放入起始页面，开始工作了
-	ctx.pageChan <- &page{url: cf.Root.String(), parse: true}
-
-	return ctx
+	ctx.pageChan <- &page{url: ctx.config.Root.String(), parse: true}
 }
 
 //初始化http客户端
-func initHttpClient(cf *conf.Config) (*http.Client,error) {
-	if(strings.TrimSpace(cf.Proxy.Server) != ""){ //使用代理
+func initHttpClient(cf *conf.Config) (*http.Client, error) {
+	if (strings.TrimSpace(cf.Proxy.Server) != "") { //使用代理
 		var auth *proxy.Auth
-		if(strings.TrimSpace(cf.Proxy.UserName) != ""){
-			auth = &proxy.Auth{User:cf.Proxy.UserName, Password:cf.Proxy.Password}
+		if (strings.TrimSpace(cf.Proxy.UserName) != "") {
+			auth = &proxy.Auth{User: cf.Proxy.UserName, Password: cf.Proxy.Password}
 		}
 		dialer, err := proxy.SOCKS5("tcp", cf.Proxy.Server,
 			auth,
-			&net.Dialer {
-				Timeout: 30 * time.Second,
+			&net.Dialer{
+				Timeout:   30 * time.Second,
 				KeepAlive: 30 * time.Second,
 			},
 		)
@@ -178,19 +182,19 @@ func initHttpClient(cf *conf.Config) (*http.Client,error) {
 		}
 
 		transport := &http.Transport{
-			Proxy: nil,
-			Dial: dialer.Dial,
+			Proxy:               nil,
+			Dial:                dialer.Dial,
 			TLSHandshakeTimeout: 10 * time.Second,
 		}
-		log.Println("Use proxy server:"+cf.Proxy.Server)
-		return &http.Client{Transport: transport},nil
+		log.Println("Use proxy server:" + cf.Proxy.Server)
+		return &http.Client{Transport: transport}, nil
 	}
-	return &http.Client{},nil  //不使用代理
+	return &http.Client{}, nil //不使用代理
 }
 
 //状态监控
 func stateMonitor(ctx *context) {
-	time.Sleep(10 * time.Second)
+	time.Sleep(5 * time.Second)
 	ticker := time.NewTicker(statusInterval)
 	count := 0
 	isDone := true
@@ -211,6 +215,8 @@ func stateMonitor(ctx *context) {
 					}
 				}
 				if isDone {
+					writeLog("", appExit, ctx)
+					time.Sleep(3 * time.Second)
 					fmt.Println("is done!")
 					os.Exit(0)
 				}
@@ -248,7 +254,7 @@ func (p *page) pollPage(ctx *context, client *http.Client) {
 
 	reader := resp.Body.(io.Reader)
 	if ctx.config.Charset == "gbk" {
-		reader = transform.NewReader(resp.Body, simplifiedchinese.GBK.NewDecoder())//字符转码
+		reader = transform.NewReader(resp.Body, simplifiedchinese.GBK.NewDecoder()) //字符转码
 	}
 	body, err := ioutil.ReadAll(reader)
 
@@ -303,6 +309,8 @@ func (p *page) parsePage(ctx *context) {
 			p.findURL(ctx, exp)
 		}
 	}
+
+	writeLog(p.url, pageProcessed, ctx)
 }
 
 //在页面html中查找图片地址
@@ -323,7 +331,7 @@ func (p *page) findImage(ctx *context, exp *conf.MatchExp) {
 
 	doc.Find(exp.Query).Each(func(i int, s *goquery.Selection) {
 		// For each item found, get the band and title
-		imgUrl,e := s.Attr(exp.Attr)
+		imgUrl, e := s.Attr(exp.Attr)
 		if !e || imgUrl == "" {
 			return
 		}
@@ -339,36 +347,11 @@ func (p *page) findImage(ctx *context, exp *conf.MatchExp) {
 			ctx.imgMap[imgUrl] = ready
 			ctx.lockImg.Unlock()
 			fileName := path.Base(p.url) + "_" + strconv.Itoa(i) + path.Ext(imgUrl)
-
 			log.Println("imgUrl:", imgUrl)
-
+			//writeLog(imgUrl, imgFound, ctx)
 			ctx.imgChan <- &image{imgUrl, fileName, 0, folder}
 		}
 	})
-/*
-	for i, n := range imgIndex {
-		idxBegin, idxEnd := 2*reg.Match, 2*reg.Match+1
-		imgUrl := strings.TrimSpace(string(body[n[idxBegin]:n[idxEnd]]))
-		if imgUrl == "" {
-			continue
-		}
-		absURL := toAbs(pageURL, imgUrl) //转换成绝对地址
-		absURL.Fragment = ""             //删除锚点
-		imgUrl = absURL.String()
-		ctx.lockImg.RLock()
-		_, exist := ctx.imgMap[imgUrl] //检查是否已放入队列，这里需要同步
-		ctx.lockImg.RUnlock()
-		if !exist {
-			ctx.lockImg.Lock()
-			ctx.imgMap[imgUrl] = ready
-			ctx.lockImg.Unlock()
-			fileName := path.Base(p.url) + "_" + strconv.Itoa(i) + path.Ext(imgUrl)
-
-			log.Println("imgUrl:", imgUrl)
-
-			ctx.imgChan <- &image{imgUrl, fileName, 0, folder}
-		}
-	}*/
 }
 
 //创建图片文件夹
@@ -449,6 +432,7 @@ func (p *page) findURL(ctx *context, exp *conf.MatchExp) {
 			ctx.pageMap[href] = ready
 			ctx.lockPage.Unlock()
 			go func() { //这里必须异步，不然会和pollPage互相等待造成死锁
+				//writeLog(href, pageFound, ctx)
 				ctx.pageChan <- &page{url: href}
 			}()
 		}
@@ -500,8 +484,9 @@ func (imgInfo *image) downloadImage(ctx *context, client *http.Client) {
 
 	ctx.lockImg.Lock()
 	ctx.imgMap[imgUrl] = done
-	ctx.imgCount <- 1
 	ctx.lockImg.Unlock()
+	ctx.imgCount <- 1
+	writeLog(imgUrl, imgProcessed, ctx)
 }
 
 //失败重试
