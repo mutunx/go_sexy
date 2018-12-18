@@ -13,35 +13,35 @@ Go语言实现妹子图爬虫
 
 ```javascript
 {
-    "root":"xxxxx.com",
-    "proxy":{
-        "server":"",
-        "username":"",
-        "password":""
-    },
-    "header":{
-        "Host":"www.mmjpg.com",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36",
-        "Referer": "http://www.mmjpg.com/mm/1059/6"
-    },
-    "charset":"utf-8",
-    "regex":{
-        "image":[
-            {
-                "exp":"bigimgsrc=\"([^\"?]+)",
-                "match":1,
-                "folder":"none"##可选值url,title,none,正则表达式
-            }
-        ],
-        "page":[],
-        "imgInPage":["\S+/post/\S+"],
-        "href":[
-            {
-                "exp":"\s+href=\"([a-zA-Z0-9_\-/:\.%?=]+)\"",
-                "match":1
-            }
-        ]
-    }
+	"root":"xxxxxx.com",
+	"proxy":{
+		"server":"127.0.0.1:1080", /*SOCKS5代理服务器，如果设置成空字符串则不使用代理 127.0.0.1:1080*/
+		"username":"",
+		"password":""
+	},
+	"header":{/*http请求头*/
+		"Host":"xxxxxx.com",
+		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36",
+		"Referer": "http://xxxxxx.com/zaqizaba/2407.html"
+	},
+	"charset":"gbk", /*可选值utf-8或gbk*/
+	"regex":{
+		"page":[], /*正则表达式，只有符合的页面才会被抓取并解析，空白表示所有页面都抓取*/
+		"imgInPage":["\S+\d+\.html"], /*存放正则，指定图片存在于哪些页面*/
+		"href":[ /*匹配页面上的链接*/
+			{
+				"query":"a", /*存放链接的dom选择器*/
+				"attr":"href"
+			}
+		],
+		"image":[ /*匹配页面上的图片地址*/
+			{
+				"query":"article.article-content img", /*匹配图片的dom选择器*/
+				"attr":"src",
+				"folder":"none" /*存放图片的文件夹，可选值url,title,none,正则表达式,文件夹名称*/
+			}
+		]
+	}
 }
 ```
 
@@ -53,8 +53,8 @@ Go语言实现妹子图爬虫
 - proxy.username:代理服务器用户名，如果不需要登录则设置空字符串
 - proxy.password:代理服务器密码，如果不需要登录则设置空字符串
 - regex.image:数组，用于匹配页面上的图片地址
-- regex.image.exp:字符串，匹配图片的正则表达式
-- regex.image.match:整数，指定图片地址在正则表达式里的哪个分组，0表示整个表达式匹配的内容，1表示第一个分组
+- regex.image.query:字符串，匹配图片的dom选择器
+- regex.image.attr:字符串，指定存储图片地址的属性名称
 - regex.image.folder:字符串，可输入url，title，none或正则表达式，其中正则表达式用于匹配页面上的内容
     - url：使用图片所在页面的url的name(源码为path.Base(url))做文件夹名称
     - title：使用页面的title
@@ -63,8 +63,8 @@ Go语言实现妹子图爬虫
 - regex.page:数组，存放正则表达式，只有符合正则表达式的页面才会被抓取并解析，留空表示所有页面都抓取并解析
 - regex.imgInPage:数组，存放正则表达式，用于指定图片存在于哪些页面里
 - regex.href:数组，用于匹配页面上的超链接
- - regex.href.exp:字符串，存放匹配超链接的正则表达式
- - regex.href.match:整数，指定超链接在正则表达式里的哪个分组，0表示整个表达式匹配的内容，1表示第一个分组
+ - regex.href.query:字符串，存放链接的dom选择器
+ - regex.href.attr:字符串，指定存储链接地址的属性名称
 
 ## 编译说明
 - golang.org/x/net包 [下载地址](https://github.com/golang/net/tree/release-branch.go1.9)
