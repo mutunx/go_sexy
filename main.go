@@ -5,10 +5,15 @@ import (
 	"bufio"
 	"bytes"
 	"fmt"
+	"github.com/PuerkitoBio/goquery"
 	"go_sexy/conf"
+	"golang.org/x/net/proxy"
+	"golang.org/x/text/encoding/simplifiedchinese"
+	"golang.org/x/text/transform"
 	"io"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,11 +23,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"golang.org/x/net/proxy"
-	"net"
-	"golang.org/x/text/transform"
-	"golang.org/x/text/encoding/simplifiedchinese"
-	"github.com/PuerkitoBio/goquery"
 )
 
 //一张需要下载的图片
@@ -97,7 +97,7 @@ func main() {
 }
 
 func initContext(cf *conf.Config) (ctx *context) {
-	savePath := "./" + cf.Root.Host +"/"
+	savePath := "./" + cf.Root.Host + "/"
 	os.MkdirAll(savePath+"logs", 0777)
 	log.Println(savePath)
 
@@ -165,9 +165,9 @@ func start(ctx *context) {
 
 //初始化http客户端
 func initHttpClient(cf *conf.Config) (*http.Client, error) {
-	if (strings.TrimSpace(cf.Proxy.Server) != "") { //使用代理
+	if strings.TrimSpace(cf.Proxy.Server) != "" { //使用代理
 		var auth *proxy.Auth
-		if (strings.TrimSpace(cf.Proxy.UserName) != "") {
+		if strings.TrimSpace(cf.Proxy.UserName) != "" {
 			auth = &proxy.Auth{User: cf.Proxy.UserName, Password: cf.Proxy.Password}
 		}
 		dialer, err := proxy.SOCKS5("tcp", cf.Proxy.Server,
@@ -417,7 +417,7 @@ func (p *page) findURL(ctx *context, exp *conf.MatchExp) {
 		if !e || hrefAttr == "" {
 			return
 		}
-		linkURL := toAbs(pageURL, hrefAttr) //转换成绝对地址
+		linkURL := toAbs(pageURL, hrefAttr)                     //转换成绝对地址
 		if linkURL == nil || linkURL.Host != ctx.rootURL.Host { //忽略非本站的地址
 			return
 		}
